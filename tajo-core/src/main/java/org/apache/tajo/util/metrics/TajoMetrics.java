@@ -67,7 +67,7 @@ public class TajoMetrics {
     return metricRegistry.getMetrics();
   }
 
-  public SortedMap<String, Gauge> getGuageMetrics(MetricFilter filter) {
+  public SortedMap<String, Gauge> getGaugeMetrics(MetricFilter filter) {
     if(filter == null) {
       filter = MetricFilter.ALL;
     }

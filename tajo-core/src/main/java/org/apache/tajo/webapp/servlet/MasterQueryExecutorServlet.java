@@ -1,48 +1,3 @@
-package org.apache.tajo.webapp;
-
-import com.google.protobuf.ServiceException;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.tajo.QueryId;
-import org.apache.tajo.QueryIdFactory;
-import org.apache.tajo.TajoProtos;
-import org.apache.tajo.catalog.CatalogUtil;
-import org.apache.tajo.catalog.TableDesc;
-import org.apache.tajo.client.QueryStatus;
-import org.apache.tajo.client.TajoClient;
-import org.apache.tajo.client.TajoClientImpl;
-import org.apache.tajo.client.TajoClientUtil;
-import org.apache.tajo.conf.TajoConf;
-import org.apache.tajo.ipc.ClientProtos;
-import org.apache.tajo.jdbc.FetchResultSet;
-import org.apache.tajo.service.ServiceTrackerFactory;
-import org.apache.tajo.util.JSPUtil;
-import org.apache.tajo.util.TajoIdUtils;
-import org.codehaus.jackson.map.DeserializationConfig;
-import org.codehaus.jackson.map.ObjectMapper;
-
-import javax.servlet.ServletConfig;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.io.NotSerializableException;
-import java.io.OutputStream;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -61,11 +16,46 @@ import java.util.concurrent.atomic.AtomicInteger;
  * limitations under the License.
  */
 
-public class QueryExecutorServlet extends HttpServlet {
-  private static final Log LOG = LogFactory.getLog(QueryExecutorServlet.class);
-  private static final long serialVersionUID = -1517586415463171579L;
+package org.apache.tajo.webapp.servlet;
 
-  transient ObjectMapper om = new ObjectMapper();
+import com.google.protobuf.ServiceException;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.tajo.QueryId;
+import org.apache.tajo.QueryIdFactory;
+import org.apache.tajo.TajoProtos;
+import org.apache.tajo.catalog.CatalogUtil;
+import org.apache.tajo.catalog.TableDesc;
+import org.apache.tajo.client.QueryStatus;
+import org.apache.tajo.client.TajoClient;
+import org.apache.tajo.client.TajoClientImpl;
+import org.apache.tajo.client.TajoClientUtil;
+import org.apache.tajo.conf.TajoConf;
+import org.apache.tajo.ipc.ClientProtos;
+import org.apache.tajo.jdbc.FetchResultSet;
+import org.apache.tajo.service.ServiceTrackerFactory;
+import org.apache.tajo.util.JSPUtil;
+import org.apache.tajo.util.TajoIdUtils;
+import org.codehaus.jackson.map.DeserializationConfig;
+
+import javax.servlet.ServletConfig;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class MasterQueryExecutorServlet extends AbstractExecutorServlet {
+  private static final Log LOG = LogFactory.getLog(MasterQueryExecutorServlet.class);
+  private static final long serialVersionUID = -1517586415463171579L;
 
   //queryRunnerId -> QueryRunner
   //TODO We must handle the session.
@@ -75,14 +65,6 @@ public class QueryExecutorServlet extends HttpServlet {
   private transient TajoClient tajoClient;
 
   private transient ExecutorService queryRunnerExecutor = Executors.newFixedThreadPool(5);
-
-  private void writeObject(java.io.ObjectOutputStream stream) throws java.io.IOException {
-    throw new NotSerializableException( getClass().getName() );
-  }
-
-  private void readObject(java.io.ObjectInputStream stream) throws java.io.IOException, ClassNotFoundException {
-    throw new NotSerializableException( getClass().getName() );
-  }
 
   @Override
   public void init(ServletConfig config) throws ServletException {
@@ -103,6 +85,12 @@ public class QueryExecutorServlet extends HttpServlet {
   public void service(HttpServletRequest request,
                       HttpServletResponse response) throws ServletException, IOException {
     String action = request.getParameter("action");
+    String type = request.getParameter("type");
+    if(type!=null && type.equalsIgnoreCase("json")){
+      type = "application/json";
+    } else {
+      type = "text/html";
+    }
     Map<String, Object> returnValue = new HashMap<String, Object>();
     try {
       if(tajoClient == null) {
@@ -225,34 +213,13 @@ public class QueryExecutorServlet extends HttpServlet {
           return;
         }
       }
-
       returnValue.put("success", "true");
-      writeHttpResponse(response, returnValue);
+      returnValue.put("timestamp", Calendar.getInstance().getTimeInMillis());
+      writeHttpResponse(response, returnValue, type);
     } catch (Exception e) {
       LOG.error(e.getMessage(), e);
-      errorResponse(response, e);
+      errorResponse(response, e, type);
     }
-  }
-
-  private void errorResponse(HttpServletResponse response, Exception e) throws IOException {
-    errorResponse(response, e.getMessage() + "\n" + StringUtils.stringifyException(e));
-  }
-
-  private void errorResponse(HttpServletResponse response, String message) throws IOException {
-    Map<String, Object> errorMessage = new HashMap<String, Object>();
-    errorMessage.put("success", "false");
-    errorMessage.put("errorMessage", message);
-    writeHttpResponse(response, errorMessage);
-  }
-
-  private void writeHttpResponse(HttpServletResponse response, Map<String, Object> outputMessage) throws IOException {
-    response.setContentType("text/html");
-
-    OutputStream out = response.getOutputStream();
-    out.write(om.writeValueAsBytes(outputMessage));
-
-    out.flush();
-    out.close();
   }
 
   class QueryRunnerCleaner extends Thread {
