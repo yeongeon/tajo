@@ -65,6 +65,8 @@ import org.apache.tajo.util.history.HistoryWriter;
 import org.apache.tajo.util.metrics.TajoSystemMetrics;
 import org.apache.tajo.webapp.QueryExecutorServlet;
 import org.apache.tajo.webapp.StaticHttpServer;
+import org.apache.tajo.webapp.metrics.ThreadableMetricsChunk;
+import org.apache.tajo.webapp.servlet.MasterMetricsServlet;
 import org.apache.tajo.ws.rs.TajoRestService;
 
 import java.io.IOException;
@@ -229,12 +231,22 @@ public class TajoMaster extends CompositeService {
     addIfService(resourceManager);
   }
 
+  private ThreadableMetricsChunk<CompositeService> threadableMetricsChunk;
+  private void initMetricsQueue(){
+    this.threadableMetricsChunk = new ThreadableMetricsChunk<CompositeService>(this);
+    this.threadableMetricsChunk.start();
+  }
+  public ThreadableMetricsChunk<CompositeService> getThreadableMetricsChunk(){
+    return this.threadableMetricsChunk;
+  }
+
   private void initWebServer() throws Exception {
     if (!systemConf.getBoolVar(ConfVars.$TEST_MODE)) {
       InetSocketAddress address = systemConf.getSocketAddrVar(ConfVars.TAJO_MASTER_INFO_ADDRESS);
       webServer = StaticHttpServer.getInstance(this ,"admin", address.getHostName(), address.getPort(),
           true, null, context.getConf(), null);
       webServer.addServlet("queryServlet", "/query_exec", QueryExecutorServlet.class);
+      webServer.addServlet("masterMetricsServlet", "/metrics", MasterMetricsServlet.class);
       webServer.start();
     }
   }
@@ -335,6 +347,8 @@ public class TajoMaster extends CompositeService {
     historyWriter.start();
 
     historyReader = new HistoryReader(getMasterName(), context.getConf());
+
+    initMetricsQueue();
   }
 
   private void writeSystemConf() throws IOException {
@@ -419,6 +433,9 @@ public class TajoMaster extends CompositeService {
     if (systemMetrics != null) systemMetrics.stop();
 
     if (pauseMonitor != null) pauseMonitor.stop();
+
+    if(threadableMetricsChunk != null) threadableMetricsChunk.stop();
+
     super.serviceStop();
 
     LOG.info("Tajo Master main thread exiting");

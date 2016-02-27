@@ -56,6 +56,8 @@ import org.apache.tajo.util.history.HistoryReader;
 import org.apache.tajo.util.history.HistoryWriter;
 import org.apache.tajo.util.metrics.TajoSystemMetrics;
 import org.apache.tajo.webapp.StaticHttpServer;
+import org.apache.tajo.webapp.metrics.ThreadableMetricsChunk;
+import org.apache.tajo.webapp.servlet.WorkerMetricsServlet;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -219,11 +221,21 @@ public class TajoWorker extends CompositeService {
         () -> taskExecutor != null ? taskExecutor.getRunningTasks() : 0);
   }
 
+  private ThreadableMetricsChunk<CompositeService> threadableMetricsChunk;
+  private void initMetricsQueue(){
+    this.threadableMetricsChunk = new ThreadableMetricsChunk<CompositeService>(this);
+    this.threadableMetricsChunk.start();
+  }
+  public ThreadableMetricsChunk<CompositeService> getThreadableMetricsChunk(){
+    return this.threadableMetricsChunk;
+  }
+
   private int initWebServer() {
     int httpPort = systemConf.getSocketAddrVar(ConfVars.WORKER_INFO_ADDRESS).getPort();
     try {
       webServer = StaticHttpServer.getInstance(this, "worker", null, httpPort,
           true, null, systemConf, null);
+      webServer.addServlet("workerMetricsServlet", "/metrics", WorkerMetricsServlet.class);
       webServer.start();
       httpPort = webServer.getPort();
       LOG.info("Worker info server started:" + httpPort);
@@ -282,6 +294,9 @@ public class TajoWorker extends CompositeService {
     }
 
     initWorkerMetrics();
+
+    initMetricsQueue();
+
     super.serviceStart();
     LOG.info("Tajo Worker is started");
   }
@@ -324,6 +339,8 @@ public class TajoWorker extends CompositeService {
     if(workerSystemMetrics != null) {
       workerSystemMetrics.stop();
     }
+
+    if(threadableMetricsChunk != null) threadableMetricsChunk.stop();
 
     if(deletionService != null) deletionService.stop();
 
